@@ -1,15 +1,23 @@
 import Vue from 'vue'
-import { createPinia, PiniaVuePlugin } from 'pinia'
-
 import App from './App.vue'
 import router from './router'
+import store from './store'
+import axios from 'axios'
 
-import './assets/main.css'
+Vue.config.productionTip = false
 
-Vue.use(PiniaVuePlugin)
+// Настройка axios
+axios.defaults.baseURL = 'http://localhost:8000/api/'
+axios.interceptors.request.use(config => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Token ${token}`
+  }
+  return config
+})
 
 new Vue({
   router,
-  pinia: createPinia(),
-  render: (h) => h(App)
+  store,
+  render: h => h(App)
 }).$mount('#app')

@@ -5,13 +5,31 @@
       <form @submit.prevent="login">
         <div class="form-group">
           <label for="username">Username</label>
-          <input type="text" id="username" v-model="username" required>
+          <input 
+            type="text" 
+            id="username" 
+            v-model="username" 
+            autocomplete="username"
+            required
+          >
         </div>
         <div class="form-group">
           <label for="password">Password</label>
-          <input type="password" id="password" v-model="password" required>
+          <input 
+            type="password" 
+            id="password" 
+            v-model="password" 
+            autocomplete="current-password"
+            required
+          >
         </div>
-        <button type="submit" class="button">Login</button>
+        <button 
+          type="submit" 
+          class="button" 
+          :disabled="loading"
+        >
+          {{ loading ? 'Logging in...' : 'Login' }}
+        </button>
         <p v-if="error" class="error-message">{{ error }}</p>
       </form>
     </div>
@@ -24,24 +42,33 @@ export default {
     return {
       username: '',
       password: '',
-      error: ''
+      error: '',
+      loading: false
     }
   },
   methods: {
-    async login() {
-      try {
-        const response = await this.$axios.post('auth/login/', {
-          username: this.username,
-          password: this.password
-        })
-        localStorage.setItem('token', response.data.token)
-        this.$store.commit('SET_AUTH', true)
-        this.$router.push('/dashboard')
-      } catch (error) {
-        this.error = 'Invalid username or password'
-      }
+  async login() {
+    try {
+      const response = await this.$axios.post('auth/', {  // или 'api/api/auth/' если нужно
+        username: this.username,
+        password: this.password
+      });
+      
+      // Сохраняем полученный токен
+      const token = response.data.token;
+      localStorage.setItem('token', token);
+      
+      // Устанавливаем токен для всех последующих запросов
+      this.$axios.defaults.headers.common['Authorization'] = `Token ${token}`;
+      
+      // Перенаправляем на защищенную страницу
+      this.$router.push('/dashboard');
+    } catch (error) {
+      console.error('Login error:', error.response);
+      this.error = 'Invalid username or password';
     }
   }
+}
 }
 </script>
 

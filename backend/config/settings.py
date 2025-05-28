@@ -16,7 +16,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'reports',
     'rest_framework.authtoken',
-    # 'corsheaders',
+    'corsheaders',
     # 'django_filters',
     # 'reports',
 ]
@@ -45,6 +45,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -56,7 +57,7 @@ DATABASES = {
         'NAME': 'insurance_db',
         'USER': 'insurance_user',
         'PASSWORD': 'securepassword123',
-        'HOST': '0.0.0.0',
+        'HOST': 'localhost',
         'PORT': '5432',
     }
 }

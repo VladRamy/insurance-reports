@@ -2,57 +2,38 @@
   <div>
     <h1>Dashboard</h1>
     
-    <div class="metrics-grid">
-      <div class="metric-card">
-        <h3>Total Premium</h3>
-        <p>{{ formatCurrency(dashboardData.total_premium) }}</p>
-      </div>
-      
-      <div class="metric-card">
-        <h3>Total Claims</h3>
-        <p>{{ formatCurrency(dashboardData.total_claims) }}</p>
-      </div>
-      
-      <div class="metric-card">
-        <h3>Open Claims</h3>
-        <p>{{ formatCurrency(dashboardData.open_claims) }}</p>
-      </div>
-      
-      <div class="metric-card">
-        <h3>Loss Ratio</h3>
-        <p>{{ dashboardData.loss_ratio.toFixed(2) }}%</p>
-      </div>
+    <div v-if="loading" class="loading">
+      Loading data...
     </div>
     
-    <div class="card">
-      <h2>Top Products</h2>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Product</th>
-            <th>Premium</th>
-            <th>Claims</th>
-            <th>Loss Ratio</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="product in dashboardData.top_products" :key="product.product__name">
-            <td>{{ product.product__name }}</td>
-            <td>{{ formatCurrency(product.premium) }}</td>
-            <td>{{ formatCurrency(product.claims) }}</td>
-            <td>{{ product.premium > 0 ? ((product.claims / product.premium) * 100).toFixed(2) + '%' : 'N/A' }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-else-if="error" class="error">
+      {{ error }}
+      <button @click="fetchDashboardData">Retry</button>
+    </div>
+    
+    <div v-else class="dashboard-content">
+      <!-- Ваши существующие компоненты dashboard -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <h3>Total Premium</h3>
+          <p>{{ formatCurrency(dashboardData.total_premium) }}</p>
+        </div>
+        
+        <!-- Остальные метрики -->
+      </div>
+      
+      <div class="card">
+        <h2>Top Products</h2>
+        <table class="data-table">
+          <!-- Таблица продуктов -->
+        </table>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-
-
 export default {
-  
   data() {
     return {
       dashboardData: {
@@ -61,7 +42,9 @@ export default {
         open_claims: 0,
         loss_ratio: 0,
         top_products: []
-      }
+      },
+      loading: false,
+      error: null
     }
   },
   methods: {
@@ -72,15 +55,32 @@ export default {
       }).format(value)
     },
     async fetchDashboardData() {
+      this.loading = true
+      this.error = null
+      
       try {
-        const response = await this.axios.get('dashboard/')
+        const response = await this.$axios.get('dashboard/')
         this.dashboardData = response.data
       } catch (error) {
-        console.error('Error fetching dashboard data:', error)
+        console.error('Dashboard error:', error)
+        if (error.response?.status === 401) {
+          this.error = 'Session expired. Please login again.'
+          this.$router.push('/login')
+        } else {
+          this.error = 'Failed to load dashboard data'
+        }
+      } finally {
+        this.loading = false
       }
     }
   },
   created() {
+    // Устанавливаем токен из localStorage
+    const token = localStorage.getItem('token')
+    if (token) {
+      this.$axios.defaults.headers.common['Authorization'] = `Token ${token}`
+    }
+    
     this.fetchDashboardData()
   }
 }

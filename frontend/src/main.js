@@ -6,8 +6,9 @@ import axios from 'axios'
 
 Vue.config.productionTip = false
 
-// Настройка axios
 axios.defaults.baseURL = 'http://localhost:8000/api/'
+
+// Добавьте интерцептор для токена
 axios.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
   if (token) {
@@ -16,6 +17,7 @@ axios.interceptors.request.use(config => {
   return config
 })
 
+Vue.prototype.$axios = axios
 new Vue({
   router,
   store,

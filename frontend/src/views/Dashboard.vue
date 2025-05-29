@@ -48,32 +48,27 @@ export default {
     }
   },
   methods: {
-    formatCurrency(value) {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD'
-      }).format(value)
-    },
-    async fetchDashboardData() {
-      this.loading = true
-      this.error = null
+  async fetchDashboardData() {
+    this.loading = true
+    this.error = null
       
-      try {
-        const response = await this.$axios.get('dashboard/')
-        this.dashboardData = response.data
-      } catch (error) {
-        console.error('Dashboard error:', error)
-        if (error.response?.status === 401) {
-          this.error = 'Session expired. Please login again.'
-          this.$router.push('/login')
-        } else {
-          this.error = 'Failed to load dashboard data'
-        }
-      } finally {
-        this.loading = false
+    try {
+      const response = await this.$axios.get('dashboard/')
+      this.dashboardData = response.data
+    } catch (error) {
+      console.error('Dashboard error:', error)
+      // Исправленная строка:
+      if (error.response && error.response.status === 401) {
+        this.error = 'Session expired. Please login again.'
+        this.$router.push('/login')
+      } else {
+        this.error = 'Failed to load dashboard data'
       }
+    } finally {
+      this.loading = false
     }
-  },
+  }
+},
   created() {
     // Устанавливаем токен из localStorage
     const token = localStorage.getItem('token')

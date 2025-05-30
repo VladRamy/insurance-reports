@@ -15,6 +15,7 @@ axios.interceptors.request.use(config => {
   }
   return config
 })
+Vue.prototype.$axios = axios
 
 new Vue({
   router,

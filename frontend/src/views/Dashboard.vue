@@ -2,30 +2,57 @@
   <div>
     <h1>Dashboard</h1>
     
-    <div v-if="loading" class="loading">
-      Loading data...
+    <div v-if="loading" class="loading-indicator">
+      Loading dashboard data...
     </div>
     
-    <div v-else-if="error" class="error">
+    <div v-else-if="error" class="error-message">
       {{ error }}
       <button @click="fetchDashboardData">Retry</button>
     </div>
     
-    <div v-else class="dashboard-content">
-      <!-- Ваши существующие компоненты dashboard -->
+    <div v-else>
       <div class="metrics-grid">
         <div class="metric-card">
           <h3>Total Premium</h3>
           <p>{{ formatCurrency(dashboardData.total_premium) }}</p>
         </div>
         
-        <!-- Остальные метрики -->
+        <div class="metric-card">
+          <h3>Total Claims</h3>
+          <p>{{ formatCurrency(dashboardData.total_claims) }}</p>
+        </div>
+        
+        <div class="metric-card">
+          <h3>Open Claims</h3>
+          <p>{{ formatCurrency(dashboardData.open_claims) }}</p>
+        </div>
+        
+        <div class="metric-card">
+          <h3>Loss Ratio</h3>
+          <p>{{ dashboardData.loss_ratio !== null && dashboardData.loss_ratio !== undefined ? dashboardData.loss_ratio.toFixed(2) : '0.00' }}%</p>
+        </div>
       </div>
       
       <div class="card">
         <h2>Top Products</h2>
         <table class="data-table">
-          <!-- Таблица продуктов -->
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Premium</th>
+              <th>Claims</th>
+              <th>Loss Ratio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="product in dashboardData.top_products" :key="product.product__name">
+              <td>{{ product.product__name }}</td>
+              <td>{{ formatCurrency(product.premium) }}</td>
+              <td>{{ formatCurrency(product.claims) }}</td>
+              <td>{{ product.premium > 0 ? ((product.claims / product.claims) * 100).toFixed(2) + '%' : 'N/A' }}</td>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>
@@ -48,28 +75,38 @@ export default {
     }
   },
   methods: {
-  async fetchDashboardData() {
-    this.loading = true
-    this.error = null
-      
-    try {
-      const response = await this.$axios.get('dashboard/')
-      this.dashboardData = response.data
-    } catch (error) {
-      console.error('Dashboard error:', error)
-      // Исправленная строка:
-      if (error.response && error.response.status === 401) {
-        this.error = 'Session expired. Please login again.'
-        this.$router.push('/login')
-      } else {
-        this.error = 'Failed to load dashboard data'
+    // Добавьте этот метод в секцию methods
+    formatCurrency(value) {
+      if (value === null || value === undefined || isNaN(value)) {
+        return '$0.00';
       }
-    } finally {
-      this.loading = false
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(value);
+    },
+    async fetchDashboardData() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const response = await this.$axios.get('dashboard/');
+        this.dashboardData = response.data;
+      } catch (error) {
+        console.error('Dashboard error:', error);
+        if (error.response && error.response.status === 401) {
+          this.error = 'Session expired. Please login again.';
+          this.$router.push('/login');
+        } else {
+          this.error = 'Failed to load dashboard data';
+        }
+      } finally {
+        this.loading = false;
+      }
     }
-  }
-},
-  created() {
+  },
+  created(){
     // Устанавливаем токен из localStorage
     const token = localStorage.getItem('token')
     if (token) {

@@ -9,8 +9,5 @@ urlpatterns = [
     path('reports/export/', ExportReportAPI.as_view(), name='export-report'),
     path('dashboard/', DashboardAPI.as_view(), name='dashboard-api'),
     path('auth/', obtain_auth_token, name='api_token_auth'),
-    
-    # Дополнительные эндпоинты
-    # path('api/products/', ProductListAPI.as_view(), name='products-api'),
-    # path('api/regions/', RegionListAPI.as_view(), name='regions-api'),
+    path('products/', ProductListAPI.as_view(), name='product-list'),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

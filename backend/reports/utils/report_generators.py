@@ -41,15 +41,26 @@ class BaseReportGenerator:
 
 class CashFlowReportGenerator(BaseReportGenerator):
     def generate(self):
-        data = self.base_queryset.values(
+        queryset = self.base_queryset.values(
             'date',
             'product__name'
         ).annotate(
-            expected_sum=Sum('expected_amount'),
-            actual_sum=Sum('actual_amount')
+            expected_amount=Sum('expected_amount'),
+            actual_amount=Sum('actual_amount')
         ).order_by('date')
         
-        return CashFlowReportSerializer(data, many=True).data
+        # Вручную преобразуем данные, так как это не ModelSerializer
+        result = []
+        for item in queryset:
+            result.append({
+                'date': item['date'],
+                'product_name': item['product__name'],
+                'expected_amount': item['expected_amount'],
+                'actual_amount': item['actual_amount'],
+                'difference': (item['actual_amount'] - item['expected_amount']) if item['actual_amount'] else None,
+                'accuracy': (item['actual_amount'] / item['expected_amount'] * 100) if item['expected_amount'] else None
+            })
+        return result
 
 class ReserveReportGenerator(BaseReportGenerator):
     def generate(self):

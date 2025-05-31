@@ -57,6 +57,13 @@ class LossRatioReportSerializer(serializers.Serializer):
     incurred_losses = serializers.DecimalField(max_digits=12, decimal_places=2)
     loss_ratio = serializers.FloatField()
 
+    def validate(self, data):
+        if data['earned_premium'] == 0:
+            data['loss_ratio'] = 0.0
+        else:
+            data['loss_ratio'] = (data['incurred_losses'] / data['earned_premium']) * 100
+        return data
+    
     def to_representation(self, instance):
         data = super().to_representation(instance)
         if data['earned_premium'] > 0:

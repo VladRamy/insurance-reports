@@ -32,17 +32,23 @@
     methods: {
       async generateReport(params) {
         this.selectedReportType = params.type
-        this.loading = true
-        this.exportParams = params
-        
+        // Проверяем наличие токена
+        const token = localStorage.getItem('token')
+        if (!token) {
+          this.$router.push('/login')
+          return
+        }
+
         try {
-          const response = await this.$axios.get('reports/', { params })
-          this.reportData = response.data
+          const response = await this.$axios.get('reports/', { 
+            params,
+            headers: {
+              Authorization: `Token ${token}`
+            }
+          })
+          this.reportData = response.data.data
         } catch (error) {
-          console.error('Error generating report:', error)
-          alert('Error generating report')
-        } finally {
-          this.loading = false
+          console.error('API Error:', error)
         }
       },
       async exportReport(format) {

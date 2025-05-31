@@ -47,27 +47,25 @@ export default {
     }
   },
   methods: {
-  async login() {
-    try {
-      const response = await this.$axios.post('auth/', {  // или 'api/api/auth/' если нужно
-        username: this.username,
-        password: this.password
-      });
-      
-      // Сохраняем полученный токен
-      const token = response.data.token;
-      localStorage.setItem('token', token);
-      
-      // Устанавливаем токен для всех последующих запросов
-      this.$axios.defaults.headers.common['Authorization'] = `Token ${token}`;
-      
-      // Перенаправляем на защищенную страницу
-      this.$router.push('/dashboard');
-    } catch (error) {
-      console.error('Login error:', error.response);
-      this.error = 'Invalid username or password';
+    async login() {
+      try {
+        const response = await this.$axios.post('auth/', {
+          username: this.username,
+          password: this.password
+        })
+        
+        const token = response.data.token
+        localStorage.setItem('token', token)
+        
+        // Принудительно обновляем заголовок
+        this.$axios.defaults.headers.common['Authorization'] = `Token ${token}`
+        
+        console.log('Login successful, token saved:', token)
+        this.$router.push('/dashboard')
+      } catch (error) {
+        console.error('Login failed:', error.response.data)
+      }
     }
-  }
 }
 }
 </script>

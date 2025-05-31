@@ -6,16 +6,27 @@ import axios from 'axios'
 
 Vue.config.productionTip = false
 
-// Настройка axios
-axios.defaults.baseURL = 'http://localhost:8000/api/'
-axios.interceptors.request.use(config => {
+// Создаём новый экземпляр axios с настройками
+const apiClient = axios.create({
+  baseURL: 'http://localhost:8000/api/',
+  headers: {
+    'Content-Type': 'application/json'
+  }
+})
+
+// Добавляем interceptor для токена
+apiClient.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Token ${token}`
+    console.log('Token added to request:', token) // Для отладки
+  } else {
+    console.warn('No token available') // Для отладки
   }
   return config
 })
-Vue.prototype.$axios = axios
+
+Vue.prototype.$axios = apiClient
 
 new Vue({
   router,

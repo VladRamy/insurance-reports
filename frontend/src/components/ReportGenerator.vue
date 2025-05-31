@@ -46,9 +46,13 @@
       <div class="form-group">
         <label for="product" class="form-label">Product (optional)</label>
         <div class="form-select-wrapper">
-          <select id="product" v-model="selectedProduct" class="form-select">
+          <select v-model="selectedProduct" class="form-select">
             <option value="">All Products</option>
-            <option v-for="product in products" :value="product.id" :key="product.id">
+            <option 
+              v-for="product in products" 
+              :value="product.id" 
+              :key="product.id"
+            >
               {{ product.name }}
             </option>
           </select>
@@ -105,27 +109,37 @@
       async fetchProducts() {
         try {
           const response = await this.$axios.get('products/')
-          this.products = response.data
+          // Извлекаем массив products из поля results
+          this.products = response.data.results || []
+          console.log('Processed products:', this.products) // Для отладки
         } catch (error) {
-          console.error('Error fetching products:', error)
+          console.error('Failed to fetch products:', error)
+          this.products = []
+          this.$toast.error('Failed to load products')
         }
       },
       handleGenerate() {
+        if (!this.validateDates()) return;
+        
         const params = {
           type: this.reportType,
           start_date: this.startDate,
-          end_date: this.endDate
-        }
+          end_date: this.endDate,
+          product_id: this.selectedProduct || undefined
+        };
         
-        if (this.selectedProduct) {
-          params.product_id = this.selectedProduct
+        this.$emit('generate', params);
+      },
+      validateDates() {
+        if (!this.startDate || !this.endDate) {
+          this.$toast.error('Please select both dates');
+          return false;
         }
-        
-        if (this.reportType === 'forecast') {
-          params.payment_type = this.paymentType
+        if (new Date(this.startDate) > new Date(this.endDate)) {
+          this.$toast.error('End date must be after start date');
+          return false;
         }
-        
-        this.$emit('generate', params)
+        return true;
       }
     },
     created() {

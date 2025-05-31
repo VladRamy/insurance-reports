@@ -60,7 +60,10 @@
           forecast: 'Payment Forecast'
         }
         return titles[this.reportType] || 'Report'
-      }
+      },
+      reportSubtitle() {
+      return `Report for ${this.reportType}`
+    }
     }
   }
   </script>

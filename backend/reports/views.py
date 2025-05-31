@@ -15,52 +15,65 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from reportlab.lib import colors
+from rest_framework.generics import ListAPIView
+from .models import InsuranceProduct
+from .serializers import InsuranceProductSerializer
+
+
+class ProductListAPI(ListAPIView):
+    queryset = InsuranceProduct.objects.all().order_by('id')
+    serializer_class = InsuranceProductSerializer
+    permission_classes = [IsAuthenticated]
 
 class ReportAPI(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        report_type = request.GET.get('type')
-        if not report_type:
+        try:
+            report_type = request.GET.get('type', '').lower()
+            if not report_type:
+                raise ValueError("Report type parameter is required")
+                
+            params = {
+                'start_date': request.GET.get('start_date'),
+                'end_date': request.GET.get('end_date'),
+                'product_id': request.GET.get('product_id'),
+                'region_id': request.GET.get('region_id'),
+                'payment_type': request.GET.get('payment_type')
+            }
+            
+            # Валидация дат
+            if not params['start_date'] or not params['end_date']:
+                raise ValueError("Both start_date and end_date parameters are required")
+                
+            # Создаем генератор отчета
+            generator_classes = {
+                'cashflow': CashFlowReportGenerator,
+                'reserves': ReserveReportGenerator,
+                'loss_ratio': LossRatioReportGenerator,
+                'forecast': PaymentForecastGenerator
+            }
+            
+            if report_type not in generator_classes:
+                raise ValueError(f"Unsupported report type: {report_type}")
+                
+            generator = generator_classes[report_type](params)
+            data = generator.generate()
+            
+            
+            return Response({
+                'status': 'success',
+                'data': data
+            })
+            
+        except ValueError as e:
             return Response(
-                {'error': 'Report type not specified'},
+                {'status': 'error', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        params = {
-            'start_date': request.GET.get('start_date'),
-            'end_date': request.GET.get('end_date'),
-            'product_id': request.GET.get('product_id'),
-            'region_id': request.GET.get('region_id'),
-            'payment_type': request.GET.get('payment_type')
-        }
-        
-        try:
-            if report_type == 'cashflow':
-                generator = CashFlowReportGenerator(params)
-            elif report_type == 'reserves':
-                generator = ReserveReportGenerator(params)
-            elif report_type == 'loss_ratio':
-                generator = LossRatioReportGenerator(params)
-            elif report_type == 'forecast':
-                generator = PaymentForecastGenerator(params)
-            elif report_type == 'stress_test':
-                generator = StressTestingGenerator(
-                    product_id=params.get('product_id'),
-                    scenario=request.GET.get('scenario', 'medium')
-                )
-            else:
-                return Response(
-                    {'error': 'Invalid report type'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-            data = generator.generate()
-            return Response(data)
-            
         except Exception as e:
             return Response(
-                {'error': str(e)},
+                {'status': 'error', 'message': f"Internal server error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -68,50 +81,96 @@ class ExportReportAPI(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        report_type = request.GET.get('type')
-        format = request.GET.get('format', 'excel')
-        
-        if format not in ['excel', 'pdf']:
+        try:
+            report_type = request.GET.get('type', '').lower()
+            format = request.GET.get('format', 'excel').lower()
+            
+            if format not in ['excel', 'pdf']:
+                raise ValueError("Invalid export format. Supported formats: excel, pdf")
+                
+            params = {
+                'start_date': request.GET.get('start_date'),
+                'end_date': request.GET.get('end_date'),
+                'product_id': request.GET.get('product_id')
+            }
+            
+            # Валидация параметров
+            if not all([params['start_date'], params['end_date']]):
+                raise ValueError("Both start_date and end_date are required")
+                
+            # Генерация данных
+            generators = {
+                'cashflow': CashFlowReportGenerator,
+                'loss_ratio': LossRatioReportGenerator
+            }
+            
+            if report_type not in generators:
+                raise ValueError(f"Export not supported for report type: {report_type}")
+                
+            generator = generators[report_type](params)
+            data = generator.generate()
+            
+            if not data:
+                raise ValueError("No data available for the selected parameters")
+                
+            # Экспорт
+            if format == 'excel':
+                return self.export_to_excel(data, report_type)
+            else:
+                return self.export_to_pdf(data, report_type)
+                
+        except ValueError as e:
             return Response(
-                {'error': 'Invalid export format'},
+                {'status': 'error', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        params = {
-            'start_date': request.GET.get('start_date'),
-            'end_date': request.GET.get('end_date'),
-            'product_id': request.GET.get('product_id')
-        }
-        
-        try:
-            if report_type == 'cashflow':
-                generator = CashFlowReportGenerator(params)
-                data = generator.generate()
-                title = "Cash Flow Report"
-                columns = ['Date', 'Product', 'Expected', 'Actual', 'Difference']
-                
-            elif report_type == 'loss_ratio':
-                generator = LossRatioReportGenerator(params)
-                data = generator.generate()
-                title = "Loss Ratio Report"
-                columns = ['Product', 'Year', 'Month', 'Earned Premium', 'Incurred Losses', 'Loss Ratio']
-                
-            else:
-                return Response(
-                    {'error': 'Export not available for this report type'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-            if format == 'excel':
-                return self.export_to_excel(data, title, columns)
-            else:
-                return self.export_to_pdf(data, title, columns)
-                
         except Exception as e:
             return Response(
-                {'error': str(e)},
+                {'status': 'error', 'message': f"Export failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    def export_to_excel(self, data, report_type):
+        # Создаем DataFrame
+        df = pd.DataFrame(data)
+        
+        # Определяем колонки в зависимости от типа отчета
+        if report_type == 'cashflow':
+            columns = ['Date', 'Product', 'Expected', 'Actual', 'Difference', 'Accuracy']
+            df.columns = columns[:len(df.columns)]
+        elif report_type == 'loss_ratio':
+            columns = ['Product', 'Year', 'Month', 'Earned Premium', 'Incurred Losses', 'Loss Ratio']
+            df.columns = columns[:len(df.columns)]
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name=report_type.capitalize(), index=False)
+            
+            # Форматирование
+            workbook = writer.book
+            worksheet = writer.sheets[report_type.capitalize()]
+            
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'border': 1,
+                'bg_color': '#4472C4',
+                'font_color': 'white'
+            })
+            
+            for col_num, value in enumerate(columns):
+                worksheet.write(0, col_num, value, header_format)
+            
+            worksheet.autofilter(0, 0, 0, len(columns)-1)
+            worksheet.freeze_panes(1, 0)
+        
+        output.seek(0)
+        response = HttpResponse(
+            output,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{report_type}_report.xlsx"'
+        return response
     
     def export_to_excel(self, data, title, columns):
         output = BytesIO()

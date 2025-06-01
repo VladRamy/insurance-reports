@@ -96,98 +96,197 @@ class ReserveReportGenerator(BaseReportGenerator):
 
 class LossRatioReportGenerator(BaseReportGenerator):
     def generate(self):
-        # Расчет убыточности по месяцам
-        monthly_data = self.base_queryset.annotate(
-            year=ExtractYear('date'),
-            month=ExtractMonth('date')
-        ).values(
-            'product_id',
-            'product__name',
-            'year',
-            'month'
-        ).annotate(
-            earned_premium=Sum(
-                Case(
-                    When(payment_type='premium', then='actual_amount'),
-                    default=0,
-                    output_field=FloatField()
+        try:
+            # Получаем данные по премиям и убыткам
+            monthly_data = self.base_queryset.annotate(
+                year=ExtractYear('date'),
+                month=ExtractMonth('date')
+            ).values(
+                'product_id',
+                'product__name',
+                'year',
+                'month'
+            ).annotate(
+                earned_premium=Sum(
+                    Case(
+                        When(payment_type='premium', then='actual_amount'),
+                        default=0,
+                        output_field=FloatField()
+                    )
+                ),
+                incurred_losses=Sum(
+                    Case(
+                        When(payment_type='claim', then='actual_amount'),
+                        default=0,
+                        output_field=FloatField()
+                    )
                 )
-            ),
-            incurred_losses=Sum(
-                Case(
-                    When(payment_type='claim', then='actual_amount'),
-                    default=0,
-                    output_field=FloatField()
-                )
-            )
-        ).order_by('product_id', 'year', 'month')
-        
-        return LossRatioReportSerializer(monthly_data, many=True).data
+            ).order_by('product_id', 'year', 'month')
+
+            # Добавляем расчет убыточности
+            result = []
+            for item in monthly_data:
+                earned = item['earned_premium'] or 0
+                losses = item['incurred_losses'] or 0
+                loss_ratio = (losses / earned * 100) if earned > 0 else 0
+                
+                result.append({
+                    'product_id': item['product_id'],
+                    'product_name': item['product__name'],
+                    'year': item['year'],
+                    'month': item['month'],
+                    'earned_premium': float(earned),
+                    'incurred_losses': float(losses),
+                    'loss_ratio': float(loss_ratio)
+                })
+            
+            return result
+
+        except Exception as e:
+            print(f"Error generating loss ratio report: {str(e)}")
+            raise ValueError("Failed to generate loss ratio report")
 
 class PaymentForecastGenerator(BaseReportGenerator):
     def generate(self):
-        # Исторические данные для прогнозирования
-        history_start = datetime.strptime(self.start_date, '%Y-%m-%d') - relativedelta(years=2)
-        historical_data = PaymentFlow.objects.filter(
-            date__gte=history_start,
-            date__lte=self.end_date,
-            payment_type=self.payment_type
-        )
-        
-        if self.product_id:
-            historical_data = historical_data.filter(product_id=self.product_id)
+        try:
+            # Получаем исторические данные
+            history = self.get_historical_data()
             
-        if self.region_id:
-            historical_data = historical_data.filter(region_id=self.region_id)
+            if not history:
+                return {
+                    'historical': [],
+                    'forecast': [],
+                    'message': 'No historical data available'
+                }
             
-        # Преобразование в DataFrame для анализа
-        df = pd.DataFrame(list(historical_data.values(
-            'date', 'expected_amount', 'actual_amount', 'product_id', 'region_id'
-        )))
-        
-        # Прогнозирование с использованием скользящего среднего
-        forecast = self.calculate_forecast(df)
-        return forecast
+            # Группируем по месяцам
+            df = pd.DataFrame(list(history.values(
+                'date', 'actual_amount', 'expected_amount'
+            )))
+            
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            monthly = df.resample('M').sum()
+            
+            # Простой прогноз (скользящее среднее)
+            forecast_values = monthly['actual_amount'].rolling(3).mean().iloc[-1]
+            
+            # Формируем прогноз на 6 месяцев вперед
+            last_date = monthly.index[-1]
+            forecast_dates = pd.date_range(
+                start=last_date + pd.offsets.MonthBegin(1),
+                periods=6,
+                freq='M'
+            )
+            
+            return {
+                'historical': monthly.reset_index().to_dict('records'),
+                'forecast': [{
+                    'date': date.strftime('%Y-%m-%d'),
+                    'amount': float(forecast_values)
+                } for date in forecast_dates]
+            }
+            
+        except Exception as e:
+            print(f"Forecast error: {str(e)}")
+            return {
+                'error': str(e),
+                'historical': [],
+                'forecast': []
+            }
 
-    def calculate_forecast(self, df):
-        # Здесь реализуем логику прогнозирования
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
-        
-        # Группировка по неделям/месяцам в зависимости от периода
-        if (datetime.strptime(self.end_date, '%Y-%m-%d') - 
-            datetime.strptime(self.start_date, '%Y-%m-%d')).days > 90:
-            freq = 'M'
-        else:
-            freq = 'W'
+    def validate_params(self):
+        """Проверка обязательных параметров"""
+        if not hasattr(self, 'start_date') or not self.start_date:
+            raise ValueError("Start date is required")
+        if not hasattr(self, 'end_date') or not self.end_date:
+            raise ValueError("End date is required")
+        if not hasattr(self, 'payment_type') or not self.payment_type:
+            raise ValueError("Payment type is required")
+
+    def get_historical_data(self):
+        """Получение исторических данных с проверкой"""
+        try:
+            history_start = datetime.strptime(self.start_date, '%Y-%m-%d') - relativedelta(years=2)
+            end_date = datetime.strptime(self.end_date, '%Y-%m-%d')
             
-        grouped = df.resample(freq).agg({
-            'actual_amount': 'sum',
-            'expected_amount': 'sum'
-        })
-        
-        # Расчет прогноза с использованием скользящего среднего
-        window_size = 3
-        grouped['forecast'] = grouped['actual_amount'].rolling(window=window_size).mean()
-        
-        # Экстраполяция на будущие периоды
-        last_date = grouped.index[-1]
-        forecast_dates = pd.date_range(
-            start=last_date + pd.Timedelta(days=1),
-            periods=6,
-            freq=freq
-        )
-        
-        # Простое прогнозирование - последнее известное значение
-        forecast_values = [grouped['forecast'].iloc[-1]] * len(forecast_dates)
-        
-        return {
-            'historical': grouped.reset_index().to_dict('records'),
-            'forecast': [
-                {'date': d.strftime('%Y-%m-%d'), 'amount': a} 
-                for d, a in zip(forecast_dates, forecast_values)
-            ]
-        }
+            queryset = PaymentFlow.objects.filter(
+                date__gte=history_start,
+                date__lte=end_date,
+                payment_type=self.payment_type
+            )
+            
+            if self.product_id:
+                queryset = queryset.filter(product_id=self.product_id)
+            if self.region_id:
+                queryset = queryset.filter(region_id=self.region_id)
+                
+            return queryset
+            
+        except ValueError as e:
+            raise ValueError(f"Invalid date format: {str(e)}")
+
+    def calculate_forecast(self, queryset):
+        """Основная логика прогнозирования с обработкой ошибок"""
+        try:
+            # Конвертация в DataFrame
+            df = pd.DataFrame(list(queryset.values(
+                'date', 'expected_amount', 'actual_amount'
+            )))
+            
+            if df.empty:
+                return {
+                    'historical': [],
+                    'forecast': [],
+                    'message': 'No data available after filtering'
+                }
+            
+            # Работа с датами
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Определение частоты группировки
+            date_range = (datetime.strptime(self.end_date, '%Y-%m-%d') - 
+                         datetime.strptime(self.start_date, '%Y-%m-%d')).days
+            freq = 'M' if date_range > 90 else 'W'
+            
+            # Группировка и расчет скользящего среднего
+            grouped = df.resample(freq).agg({
+                'actual_amount': 'sum',
+                'expected_amount': 'sum'
+            }).dropna()
+            
+            if grouped.empty:
+                return {
+                    'historical': [],
+                    'forecast': [],
+                    'message': 'Not enough data for forecasting'
+                }
+            
+            window_size = min(3, len(grouped))  # Адаптивный размер окна
+            grouped['forecast'] = grouped['actual_amount'].rolling(window=window_size).mean()
+            
+            # Прогнозирование
+            last_date = grouped.index[-1]
+            forecast_dates = pd.date_range(
+                start=last_date + pd.Timedelta(days=1),
+                periods=6,
+                freq=freq
+            )
+            
+            forecast_value = grouped['forecast'].iloc[-1] if not grouped['forecast'].isna().all() else 0
+            forecast_values = [forecast_value] * len(forecast_dates)
+            
+            return {
+                'historical': grouped.reset_index().to_dict('records'),
+                'forecast': [
+                    {'date': d.strftime('%Y-%m-%d'), 'amount': float(a)} 
+                    for d, a in zip(forecast_dates, forecast_values)
+                ]
+            }
+            
+        except Exception as e:
+            raise ValueError(f"Forecast calculation failed: {str(e)}")
 
 class StressTestingGenerator:
     def __init__(self, product_id=None, scenario='medium'):

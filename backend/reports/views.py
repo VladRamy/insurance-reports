@@ -7,7 +7,7 @@ from reports.models import *
 from reports.serializers import *
 from reports.utils.report_generators import *
 import json
-from django.db.models import Case, When, FloatField
+from django.db.models import Case, When, FloatField, Sum
 from io import BytesIO
 import pandas as pd
 # import xlsxwriter
@@ -30,10 +30,7 @@ class ReportAPI(APIView):
     
     def get(self, request):
         try:
-            report_type = request.GET.get('type', '').lower()
-            if not report_type:
-                raise ValueError("Report type parameter is required")
-                
+            report_type = request.GET.get('type', 'cashflow')
             params = {
                 'start_date': request.GET.get('start_date'),
                 'end_date': request.GET.get('end_date'),
@@ -44,22 +41,21 @@ class ReportAPI(APIView):
             
             # Валидация дат
             if not params['start_date'] or not params['end_date']:
-                raise ValueError("Both start_date and end_date parameters are required")
-                
-            # Создаем генератор отчета
-            generator_classes = {
-                'cashflow': CashFlowReportGenerator,
-                'reserves': ReserveReportGenerator,
-                'loss_ratio': LossRatioReportGenerator,
-                'forecast': PaymentForecastGenerator
-            }
+                return Response(
+                    {'error': 'Both start_date and end_date are required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
-            if report_type not in generator_classes:
-                raise ValueError(f"Unsupported report type: {report_type}")
-                
-            generator = generator_classes[report_type](params)
+            # Выбор генератора
+            generator_class = self.get_generator_class(report_type)
+            if not generator_class:
+                return Response(
+                    {'error': f'Invalid report type: {report_type}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            generator = generator_class(params)
             data = generator.generate()
-            
             
             return Response({
                 'status': 'success',
@@ -68,14 +64,140 @@ class ReportAPI(APIView):
             
         except ValueError as e:
             return Response(
-                {'status': 'error', 'message': str(e)},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
+            print(f"API Error: {str(e)}")
             return Response(
-                {'status': 'error', 'message': f"Internal server error: {str(e)}"},
+                {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    def get_generator_class(self, report_type):
+        generators = {
+            'cashflow': CashFlowReportGenerator,
+            'reserves': ReserveReportGenerator,
+            'loss_ratio': LossRatioReportGenerator,
+            'forecast': PaymentForecastGenerator
+        }
+        return generators.get(report_type)
+    
+    def get_report_generator(self, report_type, params):
+        """Возвращает соответствующий генератор отчета"""
+        generators = {
+            'cashflow': CashFlowReportGenerator,
+            'reserves': ReserveReportGenerator,
+            'loss_ratio': LossRatioReportGenerator,
+            'forecast': PaymentForecastGenerator
+        }
+        
+        generator_class = generators.get(report_type)
+        if generator_class:
+            return generator_class(params)
+        return None
+    
+    def normalize_report_data(self, data, report_type):
+        """Приводит данные отчета к единому формату"""
+        if not data:
+            return []
+            
+        if report_type == 'cashflow':
+            return self._normalize_cashflow_data(data)
+        elif report_type == 'reserves':
+            return self._normalize_reserves_data(data)
+        elif report_type == 'loss_ratio':
+            return self._normalize_loss_ratio_data(data)
+        elif report_type == 'forecast':
+            return self._normalize_forecast_data(data)
+        else:
+            return data
+    
+    def _normalize_cashflow_data(self, data):
+        """Нормализация данных Cash Flow отчета"""
+        normalized = []
+        
+        for item in data:
+            # Проверяем разные возможные варианты имен полей
+            date = item.get('date')
+            product_name = item.get('product__name') or item.get('product_name')
+            expected = float(item.get('expected_sum') or item.get('expected_amount') or 0)
+            actual = float(item.get('actual_sum') or item.get('actual_amount') or 0)
+            
+            normalized.append({
+                'date': date,
+                'product_name': product_name,
+                'expected_amount': expected,
+                'actual_amount': actual,
+                'difference': actual - expected,
+                'accuracy': (actual / expected * 100) if expected else 0
+            })
+        
+        return normalized
+    
+    def _normalize_reserves_data(self, data):
+        """Нормализация данных Reserves отчета"""
+        normalized = []
+        
+        for item in data:
+            normalized.append({
+                'calculation_date': item.get('calculation_date'),
+                'total_reserves': float(item.get('total_reserves') or 0),
+                'required_reserves': float(item.get('required_reserves') or 0),
+                'available_reserves': float(item.get('available_reserves') or 0),
+                'sufficiency_ratio': (
+                    (float(item.get('available_reserves') or 0) / 
+                    float(item.get('required_reserves') or 1) * 100
+                ) if item.get('required_reserves') else 0)
+            })
+        
+        return normalized
+    
+    def _normalize_loss_ratio_data(self, data):
+        """Нормализация данных Loss Ratio отчета"""
+        normalized = []
+        
+        for item in data:
+            earned_premium = float(item.get('earned_premium') or 0)
+            incurred_losses = float(item.get('incurred_losses') or 0)
+            
+            normalized.append({
+                'product_name': item.get('product__name') or item.get('product_name'),
+                'year': item.get('year'),
+                'month': item.get('month'),
+                'earned_premium': earned_premium,
+                'incurred_losses': incurred_losses,
+                'loss_ratio': (incurred_losses / earned_premium * 100) if earned_premium else 0
+            })
+        
+        return normalized
+    
+    def _normalize_forecast_data(self, data):
+        """Нормализация данных прогноза"""
+        normalized = {
+            'historical': [],
+            'forecast': []
+        }
+        
+        if isinstance(data, dict):
+            # Обработка исторических данных
+            for item in data.get('historical', []):
+                normalized['historical'].append({
+                    'date': item.get('date'),
+                    'actual_amount': float(item.get('actual_amount') or 0),
+                    'expected_amount': float(item.get('expected_amount') or 0),
+                    'forecast_amount': float(item.get('forecast') or 0)
+                })
+            
+            # Обработка прогнозных данных
+            for item in data.get('forecast', []):
+                normalized['forecast'].append({
+                    'date': item.get('date'),
+                    'amount': float(item.get('amount') or 0),
+                    'type': 'forecast'
+                })
+        
+        return normalized
 
 class ExportReportAPI(APIView):
     permission_classes = [IsAuthenticated]

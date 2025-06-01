@@ -37,6 +37,7 @@ class CashFlowReportSerializer(serializers.Serializer):
         return data
 
 class ReserveReportSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name')
     sufficiency_ratio = serializers.SerializerMethodField()
     
     class Meta:
@@ -53,8 +54,8 @@ class LossRatioReportSerializer(serializers.Serializer):
     product_name = serializers.CharField()
     year = serializers.IntegerField()
     month = serializers.IntegerField()
-    earned_premium = serializers.DecimalField(max_digits=12, decimal_places=2)
-    incurred_losses = serializers.DecimalField(max_digits=12, decimal_places=2)
+    earned_premium = serializers.FloatField()
+    incurred_losses = serializers.FloatField()
     loss_ratio = serializers.FloatField()
 
     def validate(self, data):

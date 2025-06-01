@@ -31,24 +31,50 @@
     },
     methods: {
       async generateReport(params) {
-        this.selectedReportType = params.type
-        // Проверяем наличие токена
-        const token = localStorage.getItem('token')
-        if (!token) {
-          this.$router.push('/login')
-          return
-        }
-
         try {
-          const response = await this.$axios.get('reports/', { 
-            params,
-            headers: {
-              Authorization: `Token ${token}`
-            }
-          })
-          this.reportData = response.data.data
+          this.loading = true;
+          this.exportParams = params; // Сохраняем параметры для экспорта
+          console.log('Sending forecast params:', {
+            type: 'forecast',
+            start_date: params.start_date,
+            end_date: params.end_date,
+            payment_type: params.payment_type, // Важно!
+            product_id: params.product_id
+          });
+          if (params.type === 'forecast') {
+            params.payment_type = params.payment_type || 'premium'; // Значение по умолчанию
+          }
+          
+          
+          const response = await this.$axios.get('reports/', { params })
+            .catch(error => {
+              console.error('API Error:', error);
+              throw new Error('Failed to fetch report data');
+            });
+            console.log('Forecast response:', response.data);
+          if (!response || !response.data) {
+            throw new Error('Empty response from server');
+          }
+          
+          this.reportData = response.data.data || []; // Используем response.data.data
+          this.selectedReportType = params.type;
+          
         } catch (error) {
-          console.error('API Error:', error)
+          console.error('Report generation error:', {
+            message: error.message,
+            response: error.response.data,
+            stack: error.stack
+          });
+          
+          const message = error.response.data.error || 
+                        error.response.data.detail || 
+                        error.message || 
+                        'Report generation failed';
+          
+          this.$toast.error(message);
+          this.reportData = []; // Сбрасываем данные при ошибке
+        } finally {
+          this.loading = false;
         }
       },
       async exportReport(format) {

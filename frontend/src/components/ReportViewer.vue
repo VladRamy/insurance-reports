@@ -7,19 +7,38 @@
       </div>
       
       <div class="export-actions">
-        <button @click="handleExport('excel')" class="export-btn excel-btn">
-          <svg class="export-icon" viewBox="0 0 24 24">
-            <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m-1.7 16.6l-1.4-1.4 1.6-1.6H9v-2h3.5l-1.6-1.6 1.4-1.4 3.5 3.5-3.5 3.5M13 9V3.5L18.5 9H13z"/>
-          </svg>
-          Excel
-        </button>
-        <button @click="handleExport('pdf')" class="export-btn pdf-btn">
-          <svg class="export-icon" viewBox="0 0 24 24">
-            <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m-1.1 17H9v-1.8h3.9v1.8m0-3.6H9v-1.8h3.9v1.8M13 9V3.5L18.5 9H13z"/>
-          </svg>
-          PDF
-        </button>
-      </div>
+    <button
+      @click="handleExport('excel')"
+      :disabled="exportLoading || !hasData"
+      class="export-btn excel-btn"
+    >
+      <span v-if="exportLoading">
+        <i class="loading-spinner"></i> Exporting...
+      </span>
+      <template v-else>
+        <svg class="export-icon" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m-1.7 16.6l-1.4-1.4 1.6-1.6H9v-2h3.5l-1.6-1.6 1.4-1.4 3.5 3.5-3.5 3.5M13 9V3.5L18.5 9H13z"/>
+        </svg>
+        Export Excel
+      </template>
+    </button>
+
+    <button
+      @click="handleExport('pdf')"
+      :disabled="exportLoading || !hasData"
+      class="export-btn pdf-btn"
+    >
+      <span v-if="exportLoading">
+        <i class="loading-spinner"></i> Exporting...
+      </span>
+      <template v-else>
+        <svg class="export-icon" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m-1.1 17H9v-1.8h3.9v1.8m0-3.6H9v-1.8h3.9v1.8M13 9V3.5L18.5 9H13z"/>
+        </svg>
+        Export PDF
+      </template>
+    </button>
+  </div>
     </div>
     
     <div class="report-body">
@@ -45,10 +64,48 @@
 <script>
 import DynamicTable from './tables/DynamicTable.vue'
 import CashFlowChart from './charts/CashFlowChart.vue'
+import { exportToExcel, exportToPDF } from './utils/exportHelpers'
+
+const REPORT_HEADERS = {
+  cashflow: [
+    { key: 'date', title: 'Date', type: 'date' },
+    { key: 'product_name', title: 'Product', type: 'string' },
+    { key: 'expected_amount', title: 'Expected Amount', type: 'currency' },
+    { key: 'actual_amount', title: 'Actual Amount', type: 'currency' },
+    { key: 'difference', title: 'Difference', type: 'currency' },
+    { key: 'accuracy', title: 'Accuracy', type: 'percentage' }
+  ],
+  reserves: [
+    { key: 'calculation_date', title: 'Calculation Date', type: 'date' },
+    { key: 'product_name', title: 'Product', type: 'string' },
+    { key: 'total_reserves', title: 'Total Reserves', type: 'currency' },
+    { key: 'required_reserves', title: 'Required Reserves', type: 'currency' },
+    { key: 'available_reserves', title: 'Available Reserves', type: 'currency' },
+    { key: 'sufficiency_ratio', title: 'Sufficiency Ratio', type: 'percentage' }
+  ],
+  forecast: [
+    { key: 'date', title: 'Date', type: 'date' },
+    { key: 'amount', title: 'Amount', type: 'currency' },
+    { key: 'type', title: 'Type', type: 'string' }
+  ],
+  loss_ratio: [
+    { key: 'product_name', title: 'Product', type: 'string' },
+    { key: 'year', title: 'Year', type: 'number' },
+    { key: 'month', title: 'Month', type: 'number' },
+    { key: 'earned_premium', title: 'Earned Premium', type: 'currency' },
+    { key: 'incurred_losses', title: 'Incurred Losses', type: 'currency' },
+    { key: 'loss_ratio', title: 'Loss Ratio', type: 'percentage' }
+  ]
+};
 
 export default {
   name: 'ReportViewer',
   components: { DynamicTable, CashFlowChart },
+  data() {
+    return {
+      exportLoading: false
+    }
+  },
   props: {
     data: [Array, Object],
     reportType: {
@@ -62,6 +119,9 @@ export default {
     }
   },
   computed: {
+    tableHeaders() {
+      return REPORT_HEADERS[this.reportType] || [];
+    },
     hasData() {
       if (!this.data) return false
       
@@ -106,18 +166,68 @@ export default {
     }
   },
   methods: {
-    handleExport(format) {
-      this.$emit('export', format)
+    async handleExport(format) {
+    try {
+      this.exportLoading = true;
+      
+      if (!this.normalizedData.length) {
+        throw new Error('No data available for export');
+      }
+
+      const exportData = {
+        title: this.reportTitle,
+        headers: this.tableHeaders,
+        rows: this.normalizedData
+      };
+      
+      if (format === 'excel') {
+        await exportToExcel(exportData);
+      } else {
+        await exportToPDF(exportData);
+      }
+      
+      this.$toast.success(`Report exported to ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      this.$toast.error(error.message || 'Export failed');
+    } finally {
+      this.exportLoading = false;
+    }
+  },
+    prepareExportData() {
+      return {
+        title: this.reportTitle,
+        headers: this.tableHeaders.map(h => ({
+          key: h.key,
+          title: h.title,
+          type: h.type
+        })),
+        rows: this.normalizedData.map(item => {
+          const row = {};
+          this.tableHeaders.forEach(header => {
+            row[header.key] = item[header.key];
+          });
+          return row;
+        })
+      };
     },
+    
     normalizeCashflowData() {
-      return (Array.isArray(this.data) ? this.data : []).map(item => ({
-        date: item.date,
-        product_name: item.product__name || item.product_name || 'N/A',
-        expected_amount: item.expected_sum || item.expected_amount || 0,
-        actual_amount: item.actual_sum || item.actual_amount || 0,
-        difference: (item.actual_sum || item.actual_amount || 0) - 
-                  (item.expected_sum || item.expected_amount || 0),
-      }))
+      return (Array.isArray(this.data) ? this.data : []).map(item => {
+        const expected = item.expected_sum || item.expected_amount || 0
+        const actual = item.actual_sum || item.actual_amount || 0
+        const difference = actual - expected
+        const accuracy = expected !== 0 ? (actual / expected * 100) : null
+        
+        return {
+          date: item.date,
+          product_name: item.product__name || item.product_name || 'N/A',
+          expected_amount: expected,
+          actual_amount: actual,
+          difference: difference,
+          accuracy: accuracy
+        }
+      })
     },
     normalizeReservesData() {
       return (Array.isArray(this.data) ? this.data : []).map(item => {
@@ -297,5 +407,20 @@ export default {
     justify-content: center;
     padding: 10px;
   }
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 5px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
